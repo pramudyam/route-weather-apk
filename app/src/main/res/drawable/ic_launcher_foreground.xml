@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Route pin & path -->
+    <path
+        android:fillColor="#FFD166"
+        android:pathData="M38,36 A10,10 0 1,0 38,56 A10,10 0 1,0 38,36" />
+    <!-- Cloud shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,66 h30 a12,12 0 0,0 2,-23.8 a16,16 0 0,0 -30.4,-5.2 a14,14 0 0,0 -9.6,15 a14,14 0 0,0 8,14 Z" />
+    <!-- Pin marker below -->
+    <path
+        android:fillColor="#EF476F"
+        android:pathData="M54,68 C50,68 47,71 47,75 C47,81 54,88 54,88 C54,88 61,81 61,75 C61,71 58,68 54,68 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,73 A2,2 0 1,0 54,77 A2,2 0 1,0 54,73" />
+</vector>
