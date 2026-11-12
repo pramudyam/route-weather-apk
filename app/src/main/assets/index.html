@@ -83,6 +83,9 @@ tailwind.config = {
   }
 }
 </script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
@@ -103,6 +106,58 @@ tailwind.config = {
   }
   .noscroll::-webkit-scrollbar { display: none; }
   .noscroll { -ms-overflow-style: none; scrollbar-width: none; }
+  /* Leaflet & Live GPS Pulse Styling */
+  .leaflet-container {
+    background: #0b081a !important;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+  }
+  .leaflet-popup-content-wrapper {
+    background: #ffffff !important;
+    border-radius: 16px !important;
+    padding: 2px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+  }
+  .leaflet-popup-tip {
+    background: #ffffff !important;
+  }
+  .gps-pulse-icon {
+    position: relative;
+    width: 24px;
+    height: 24px;
+  }
+  .gps-pulse-dot {
+    width: 14px;
+    height: 14px;
+    background: #06b6d4;
+    border: 2.5px solid #ffffff;
+    border-radius: 50%;
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    box-shadow: 0 0 12px #06b6d4;
+    z-index: 2;
+  }
+  .gps-pulse-ring {
+    width: 34px;
+    height: 34px;
+    background: rgba(6, 182, 212, 0.45);
+    border-radius: 50%;
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    animation: gpsPulse 1.8s infinite ease-out;
+    z-index: 1;
+  }
+  @keyframes gpsPulse {
+    0% { transform: scale(0.3); opacity: 1; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .custom-wp-pin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   
   /* GPU-friendly dark glass (Zero backdrop-filter overhead for 60-120fps smooth scrolling) */
   .backdrop-blur-md, .backdrop-blur-xl, [class*="backdrop-blur"] {
@@ -418,6 +473,152 @@ function lookup(h, etaMs) {
   return i < 0 ? null : { t: h.temperature_2m[i], c: h.weathercode[i] };
 }
 
+
+/* ---------- Astronomically Accurate Moon Phase & Celestial Mechanics ---------- */
+function getMoonPhaseData(d = new Date()) {
+  const knownNewMoon = 1704974220000; // Jan 11, 2024 11:57 UTC
+  const synodicMonth = 29.53058867 * 86400000; // ms
+  const diff = d.getTime() - knownNewMoon;
+  let phase = ((diff % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth;
+  const illumination = Math.round((1 - Math.cos(phase * 2 * Math.PI)) / 2 * 100);
+
+  let name = '';
+  let icon = '🌕';
+  if (phase < 0.03 || phase > 0.97) {
+    name = 'Bulan Baru (New Moon)'; icon = '🌑';
+  } else if (phase < 0.22) {
+    name = 'Bulan Sabit Awal (Waxing Crescent)'; icon = '🌒';
+  } else if (phase < 0.28) {
+    name = 'Bulan Paruh Awal (First Quarter)'; icon = '🌓';
+  } else if (phase < 0.47) {
+    name = 'Bulan Cembung Awal (Waxing Gibbous)'; icon = '🌔';
+  } else if (phase < 0.53) {
+    name = 'Bulan Purnama (Full Moon)'; icon = '🌕';
+  } else if (phase < 0.72) {
+    name = 'Bulan Cembung Akhir (Waning Gibbous)'; icon = '🌖';
+  } else if (phase < 0.78) {
+    name = 'Bulan Paruh Akhir (Last Quarter)'; icon = '🌗';
+  } else {
+    name = 'Bulan Sabit Akhir (Waning Crescent)'; icon = '🌘';
+  }
+  return { phase: +phase.toFixed(3), illumination, name, icon };
+}
+
+function getCelestialPosition(width, height) {
+  const now = new Date();
+  const hours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+  const isNight = hours < 6 || hours >= 18;
+
+  let progress = 0;
+  if (!isNight) {
+    progress = (hours - 6) / 12;
+  } else {
+    progress = hours >= 18 ? (hours - 18) / 12 : (hours + 6) / 12;
+  }
+  progress = Math.max(0.04, Math.min(0.96, progress));
+
+  const x = width * (0.08 + 0.84 * progress);
+  const arc = Math.sin(progress * Math.PI);
+  const y = height * (0.34 - 0.22 * arc);
+
+  return { isNight, progress, x, y, hours };
+}
+
+function drawRealisticSun(ctx, cx, cy, r, progress) {
+  const coronaR = r * 3.2;
+  const corona = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, coronaR);
+  corona.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+  corona.addColorStop(0.2, 'rgba(255, 235, 170, 0.45)');
+  corona.addColorStop(0.6, 'rgba(255, 180, 80, 0.16)');
+  corona.addColorStop(1, 'transparent');
+  ctx.fillStyle = corona;
+  ctx.beginPath();
+  ctx.arc(cx, cy, coronaR, 0, Math.PI * 2);
+  ctx.fill();
+
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  coreGrad.addColorStop(0, '#ffffff');
+  coreGrad.addColorStop(0.7, '#fff7db');
+  coreGrad.addColorStop(1, '#ffc83b');
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 240, 200, 0.28)';
+  ctx.lineWidth = 1.6;
+  for (let a = 0; a < 8; a++) {
+    const ang = a * (Math.PI / 4) + progress * 2.5;
+    const x1 = cx + Math.cos(ang) * (r + 4);
+    const y1 = cy + Math.sin(ang) * (r + 4);
+    const x2 = cx + Math.cos(ang) * (r + 14);
+    const y2 = cy + Math.sin(ang) * (r + 14);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRealisticMoon(ctx, cx, cy, r, phaseData) {
+  const phase = phaseData.phase;
+  const illumination = phaseData.illumination;
+
+  const glowR = r * 2.7;
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, glowR);
+  glow.addColorStop(0, 'rgba(225, 235, 255, ' + (0.28 + illumination / 280) + ')');
+  glow.addColorStop(0.4, 'rgba(170, 185, 255, 0.10)');
+  glow.addColorStop(1, 'transparent');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.fillStyle = '#1e1939';
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+  ctx.fillStyle = 'rgba(12, 10, 24, 0.55)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.35, cy - r * 0.2, r * 0.28, 0, Math.PI * 2);
+  ctx.arc(cx + r * 0.2, cy + r * 0.35, r * 0.22, 0, Math.PI * 2);
+  ctx.arc(cx - r * 0.05, cy + r * 0.3, r * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (illumination > 2) {
+    ctx.fillStyle = '#fffdf0';
+    ctx.beginPath();
+
+    if (phase < 0.5) {
+      ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+      const cosTerm = Math.cos(phase * 2 * Math.PI);
+      const ellX = Math.abs(cosTerm) * r;
+      ctx.ellipse(cx, cy, ellX, r, 0, Math.PI / 2, -Math.PI / 2, cosTerm > 0);
+    } else {
+      ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+      const cosTerm = Math.cos(phase * 2 * Math.PI);
+      const ellX = Math.abs(cosTerm) * r;
+      ctx.ellipse(cx, cy, ellX, r, 0, -Math.PI / 2, Math.PI / 2, cosTerm > 0);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(210, 215, 225, 0.25)';
+    ctx.beginPath();
+    ctx.arc(cx + (phase < 0.5 ? r * 0.25 : -r * 0.25), cy - r * 0.2, r * 0.18, 0, Math.PI * 2);
+    ctx.arc(cx + (phase < 0.5 ? r * 0.4 : -r * 0.4), cy + r * 0.2, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 /* ---------- Canvas Animasi UI Modern (Gradient Dinamis & Cuaca Spektakuler) ---------- */
 function AtmosphericCanvas({ weather, isNight, onCanvasClick }) {
   const canvasRef = useRef(null);
@@ -554,54 +755,25 @@ function AtmosphericCanvas({ weather, isNight, onCanvasClick }) {
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // 2. Glowing Sun or Moon Orb
+      // 2. Rolling Sun or Moon along Realtime Parabolic Celestial Arc
+      const cel = getCelestialPosition(width, height);
+
       if (!night) {
-        // Glowing sun in upper right
-        const sunX = width * 0.82;
-        const sunY = height * 0.23;
-        const sunR = Math.min(width * 0.13, 52);
-
-        const sunGlow = ctx.createRadialGradient(sunX, sunY, sunR * 0.4, sunX, sunY, sunR * 3);
-        sunGlow.addColorStop(0, 'rgba(255, 255, 255, 0.55)');
-        sunGlow.addColorStop(0.4, 'rgba(255, 245, 220, 0.22)');
-        sunGlow.addColorStop(1, 'transparent');
-        ctx.fillStyle = sunGlow;
-        ctx.beginPath();
-        ctx.arc(sunX, sunY, sunR * 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.beginPath();
-        ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
-        ctx.fill();
+        const sunR = Math.min(width * 0.11, 46);
+        drawRealisticSun(ctx, cel.x, cel.y, sunR, cel.progress);
       } else {
-        // Glowing moon with stars
         st.stars.forEach(s => {
           s.twinkle += dt * 3;
           const a = 0.35 + 0.55 * Math.sin(s.twinkle);
-          ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
+          ctx.fillStyle = 'rgba(255, 255, 255, ' + a + ')';
           ctx.beginPath();
           ctx.arc(s.x * width, s.y * height, s.r, 0, Math.PI * 2);
           ctx.fill();
         });
 
-        const moonX = width * 0.82;
-        const moonY = height * 0.23;
-        const moonR = Math.min(width * 0.12, 48);
-
-        const moonGlow = ctx.createRadialGradient(moonX, moonY, moonR * 0.5, moonX, moonY, moonR * 2.8);
-        moonGlow.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-        moonGlow.addColorStop(0.5, 'rgba(200, 190, 255, 0.18)');
-        moonGlow.addColorStop(1, 'transparent');
-        ctx.fillStyle = moonGlow;
-        ctx.beginPath();
-        ctx.arc(moonX, moonY, moonR * 2.8, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
-        ctx.fill();
+        const moonR = Math.min(width * 0.10, 42);
+        const moonPhase = getMoonPhaseData();
+        drawRealisticMoon(ctx, cel.x, cel.y, moonR, moonPhase);
       }
 
       // 3. Layered Puffy Clouds at the Horizon (Matching uiuxnew.png style)
@@ -831,6 +1003,262 @@ function PlaceField({ id, label, text, onText, onPick, placeholder, action }) {
   );
 }
 
+
+/* ---------- RouteMapView: Leaflet OpenStreetMap Live GPS & Route Component ---------- */
+function RouteMapView({ pts, rows, selectedWp, onSelectWp, liveGpsCoords }) {
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const gpsMarkerRef = useRef(null);
+  const markersGroupRef = useRef(null);
+  const polylineRef = useRef(null);
+  const [mapStyle, setMapStyle] = useState('dark'); // 'dark' | 'voyager' | 'osm'
+  const [isFollowingGps, setIsFollowingGps] = useState(false);
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
+    if (typeof L === 'undefined') return;
+
+    const map = L.map(mapContainerRef.current, {
+      zoomControl: false,
+      attributionControl: false
+    });
+    mapInstanceRef.current = map;
+
+    const tileLayer = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      { maxZoom: 19, subdomains: 'abcd' }
+    ).addTo(map);
+    map._tileLayer = tileLayer;
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    if (rows && rows.length > 0) {
+      map.setView([rows[0].lat, rows[0].lon], 10);
+    } else {
+      map.setView([-6.2088, 106.8456], 10);
+    }
+
+    setTimeout(() => { map.invalidateSize(); }, 300);
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !map._tileLayer) return;
+    map.removeLayer(map._tileLayer);
+
+    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    let sub = 'abcd';
+    if (mapStyle === 'voyager') {
+      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    } else if (mapStyle === 'osm') {
+      url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      sub = 'abc';
+    }
+    const layer = L.tileLayer(url, { maxZoom: 19, subdomains: sub }).addTo(map);
+    map._tileLayer = layer;
+  }, [mapStyle]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof L === 'undefined') return;
+
+    if (markersGroupRef.current) map.removeLayer(markersGroupRef.current);
+    if (polylineRef.current) map.removeLayer(polylineRef.current);
+
+    const markersGroup = L.layerGroup().addTo(map);
+    markersGroupRef.current = markersGroup;
+
+    const lineCoords = pts && pts.length > 0 ? pts : rows.map(r => [r.lat, r.lon]);
+    if (lineCoords.length > 1) {
+      const glowLine = L.polyline(lineCoords, {
+        color: '#0284c7',
+        weight: 8,
+        opacity: 0.35,
+        lineCap: 'round',
+        lineJoin: 'round'
+      });
+      const routeLine = L.polyline(lineCoords, {
+        color: '#38bdf8',
+        weight: 4.5,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round'
+      });
+      const routeGroup = L.featureGroup([glowLine, routeLine]).addTo(map);
+      polylineRef.current = routeGroup;
+
+      try {
+        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+      } catch (e) {}
+    }
+
+    rows.forEach((w, idx) => {
+      const isStart = idx === 0;
+      const isEnd = idx === rows.length - 1;
+      const isSel = selectedWp === idx;
+      const k = w.wx ? kind(w.wx.c) : 'sun';
+      const tempVal = w.wx ? Math.round(w.wx.t) : 28;
+      const condText = w.wx ? LBL[k] : 'Cerah';
+
+      let markerHtml = '';
+      if (isStart) {
+        markerHtml = '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white font-black text-xs shadow-lg border-2 border-white ring-4 ring-emerald-500/30">A</div>';
+      } else if (isEnd) {
+        markerHtml = '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500 text-white font-black text-xs shadow-lg border-2 border-white ring-4 ring-rose-500/30">B</div>';
+      } else {
+        markerHtml = '<div class="flex items-center gap-1 px-1.5 py-0.5 rounded-full ' + (isSel ? 'bg-amber-400 text-slate-950 font-black ring-4 ring-amber-400/40' : 'bg-slate-900/90 text-white border border-white/40') + ' text-[10px] shadow-md whitespace-nowrap"><span>' + tempVal + '°</span></div>';
+      }
+
+      const icon = L.divIcon({
+        className: 'custom-wp-pin',
+        html: markerHtml,
+        iconSize: [isStart || isEnd ? 32 : 28, isStart || isEnd ? 32 : 20],
+        iconAnchor: [isStart || isEnd ? 16 : 14, isStart || isEnd ? 16 : 10]
+      });
+
+      const popupHtml = `
+        <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 170px; color: #1e1939;">
+          <div style="font-weight: 800; font-size: 13px; color: #0f172a; margin-bottom: 2px;">
+            ${isStart ? '🏁 Titik Awal: ' : isEnd ? '🏁 Titik Akhir: ' : '📍 '}${w.name}
+          </div>
+          <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
+            ${w.km} km · ETA ${hhmm(w.eta)} ${w.elevation != null ? `· ⛰️ ${w.elevation} mdpl` : ''}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 6px 8px; border-radius: 8px;">
+            <span style="font-size: 12px; font-weight: 700; color: #1e293b;">${condText}</span>
+            <span style="font-size: 14px; font-weight: 900; color: #0284c7;">${tempVal}°C</span>
+          </div>
+        </div>
+      `;
+
+      const m = L.marker([w.lat, w.lon], { icon }).addTo(markersGroup).bindPopup(popupHtml);
+      m.on('click', () => {
+        if (onSelectWp) onSelectWp(idx);
+      });
+    });
+  }, [pts, rows, selectedWp]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof L === 'undefined') return;
+
+    if (!liveGpsCoords) {
+      if (gpsMarkerRef.current) {
+        map.removeLayer(gpsMarkerRef.current);
+        gpsMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const gpsHtml = '<div class="gps-pulse-icon"><div class="gps-pulse-ring"></div><div class="gps-pulse-dot"></div></div>';
+    const gpsIcon = L.divIcon({
+      className: 'gps-div-icon',
+      html: gpsHtml,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    if (!gpsMarkerRef.current) {
+      gpsMarkerRef.current = L.marker(liveGpsCoords, { icon: gpsIcon, zIndexOffset: 1000 })
+        .addTo(map)
+        .bindPopup('<b style="color:#0f172a">Posisi GPS Anda Saat Ini</b>');
+    } else {
+      gpsMarkerRef.current.setLatLng(liveGpsCoords);
+    }
+
+    if (isFollowingGps) {
+      map.panTo(liveGpsCoords, { animate: true, duration: 0.8 });
+    }
+  }, [liveGpsCoords, isFollowingGps]);
+
+  const fitRoute = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    setIsFollowingGps(false);
+    const lineCoords = pts && pts.length > 0 ? pts : rows.map(r => [r.lat, r.lon]);
+    if (lineCoords.length > 1) {
+      const bounds = L.latLngBounds(lineCoords);
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+  };
+
+  const centerGps = () => {
+    const map = mapInstanceRef.current;
+    if (!map || !liveGpsCoords) return;
+    setIsFollowingGps(true);
+    map.setView(liveGpsCoords, 14, { animate: true });
+  };
+
+  const toggleStyle = () => {
+    setMapStyle(s => s === 'dark' ? 'voyager' : s === 'voyager' ? 'osm' : 'dark');
+  };
+
+  const totalKm = rows.length > 0 ? rows[rows.length - 1].km : 0;
+  const maxElev = rows.reduce((mx, r) => Math.max(mx, r.elevation || 0), 0);
+
+  return (
+    <div className="relative rounded-3xl overflow-hidden border border-white/20 shadow-2xl bg-[#0b081a]">
+      <div className="absolute top-2 left-2 right-14 z-[400] flex items-center gap-2 overflow-x-auto noscroll p-1">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-white/20 backdrop-blur-md text-[11px] font-bold text-white shadow-lg">
+          <span className="text-cyan-400">🛣️</span>
+          <span>{totalKm} km</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-white/20 backdrop-blur-md text-[11px] font-bold text-white shadow-lg">
+          <span className="text-amber-400">⛰️ Max</span>
+          <span>{maxElev} mdpl</span>
+        </div>
+        {liveGpsCoords && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/85 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 shadow-lg">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>GPS Aktif</span>
+          </div>
+        )}
+      </div>
+
+      <div ref={mapContainerRef} style={{ width: '100%', height: '400px' }} />
+
+      <div className="absolute bottom-3 right-3 z-[400] flex flex-col gap-2">
+        {liveGpsCoords && (
+          <button
+            type="button"
+            onClick={centerGps}
+            className={'w-10 h-10 rounded-2xl flex items-center justify-center shadow-xl border transition-all active:scale-95 ' + (isFollowingGps ? 'bg-cyan-500 text-slate-950 border-white ring-4 ring-cyan-500/30' : 'bg-slate-900/90 text-white border-white/30 hover:bg-slate-800')}
+            title="Pusatkan ke GPS Saya"
+          >
+            🎯
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={fitRoute}
+          className="w-10 h-10 rounded-2xl flex items-center justify-center bg-slate-900/90 text-white border border-white/30 shadow-xl hover:bg-slate-800 active:scale-95 transition-all text-[13px] font-bold"
+          title="Zoom Pas Seluruh Rute"
+        >
+          🔍
+        </button>
+        <button
+          type="button"
+          onClick={toggleStyle}
+          className="w-10 h-10 rounded-2xl flex items-center justify-center bg-slate-900/90 text-white border border-white/30 shadow-xl hover:bg-slate-800 active:scale-95 transition-all text-[13px]"
+          title="Ganti Tampilan Peta (Dark / Voyager / OSM)"
+        >
+          {mapStyle === 'dark' ? '🌙' : mapStyle === 'voyager' ? '🗺️' : '☀️'}
+        </button>
+      </div>
+
+      <div className="px-4 py-2 bg-slate-950/90 border-t border-white/10 flex items-center justify-between text-[11px] text-white/70">
+        <span>Klik marker rute untuk melihat detail cuaca titik</span>
+        <span className="text-[10px] text-cyan-400 font-bold uppercase">{mapStyle} Map</span>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Main Application (UI/UX uiuxnew.png) ---------- */
 function App() {
   const [activeTab, setActiveTab] = useState('day'); // 'day' | 'week' | 'route'
@@ -860,7 +1288,9 @@ function App() {
   const [fromC, setFromC] = useState(null);
   const [toT, setToT] = useState('');
   const [toC, setToC] = useState(null);
-  const [route, setRoute] = useState({ o: '', d: '', wps: [], real: false });
+  const [route, setRoute] = useState({ o: '', d: '', wps: [], real: false, pts: null });
+  const [routeViewMode, setRouteViewMode] = useState('map'); // 'map' | 'list'
+  const [liveGpsCoords, setLiveGpsCoords] = useState(null);
   const [fc, setFc] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeErr, setRouteErr] = useState('');
@@ -976,6 +1406,15 @@ function App() {
         }
       }, 1500);
 
+      if (navigator.geolocation.watchPosition) {
+        navigator.geolocation.watchPosition(
+          wPos => {
+            setLiveGpsCoords([wPos.coords.latitude, wPos.coords.longitude]);
+          },
+          () => {},
+          { enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 }
+        );
+      }
       navigator.geolocation.getCurrentPosition(
         pos => {
           if (!resolved) {
@@ -1029,9 +1468,10 @@ function App() {
       // Single ultra-fast batch request for all 20-30 waypoints!
       const fcList = await fetchBatchRouteWeather(wps);
       setFc(fcList);
-      setRoute({ o: fromT.trim(), d: toT.trim(), wps, real: !!rt });
+      setRoute({ o: fromT.trim(), d: toT.trim(), wps, real: !!rt, pts: rt ? rt.pts : wps.map(w => [w.lat, w.lon]) });
       setDep(0);
       setSelectedWp(null);
+      setRouteViewMode('map');
       setActiveTab('route');
     } catch (e) {
       setRouteErr('Gagal menghitung rute: ' + e.message);
@@ -1143,6 +1583,17 @@ function App() {
       <div className="relative z-20 px-6 text-center pt-2">
         <div className="text-[17px] font-extrabold text-white tracking-[0.22em] uppercase drop-shadow-md truncate max-w-[320px] mx-auto">
           {displayLocation}
+        </div>
+        {/* Realtime Celestial Status Badge */}
+        <div className="mt-1 flex items-center justify-center">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-semibold text-white/90 shadow-sm backdrop-blur-md">
+            <span>{isNight ? getMoonPhaseData().icon : '☀️'}</span>
+            <span>
+              {isNight
+                ? `${getMoonPhaseData().name} · ${getMoonPhaseData().illumination}% Terang`
+                : `Matahari Siang (Busur Pukul ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB)`}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1561,7 +2012,39 @@ function App() {
                   </div>
                 )}
 
+                {/* Route View Switcher Tabs (Daftar vs Peta OpenMap) */}
+                <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/20 bg-white/10 p-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => setRouteViewMode('map')}
+                    className={'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold transition-all ' + (routeViewMode === 'map' ? 'bg-cyan-400 text-slate-950 shadow-md font-black' : 'text-white/80 hover:text-white')}
+                  >
+                    <span>🗺️</span> Peta OpenMap (Live GPS)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRouteViewMode('list')}
+                    className={'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold transition-all ' + (routeViewMode === 'list' ? 'bg-white text-slate-900 shadow-md' : 'text-white/80 hover:text-white')}
+                  >
+                    <span>📋</span> Daftar Titik ({rows.length})
+                  </button>
+                </div>
+
+                {/* Conditional View: Leaflet Map View vs List View */}
+                {routeViewMode === 'map' && (
+                  <div className="mt-4">
+                    <RouteMapView
+                      pts={route.pts || rows.map(r => [r.lat, r.lon])}
+                      rows={rows}
+                      selectedWp={selectedWp}
+                      onSelectWp={setSelectedWp}
+                      liveGpsCoords={liveGpsCoords}
+                    />
+                  </div>
+                )}
+
                 {/* Waypoint list (20 - 30 Checkpoints lengkap dengan Elevasi mdpl!) */}
+                {routeViewMode === 'list' && (
                 <div className="mt-4 space-y-2.5">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-white/70 px-1">
                     Titik Jalur ({rows.length} Interval · Klik titik untuk melihat cuacanya)
@@ -1595,6 +2078,7 @@ function App() {
                     );
                   })}
                 </div>
+                )}
               </div>
             )}
           </div>
