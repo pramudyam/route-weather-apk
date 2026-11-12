@@ -1006,6 +1006,7 @@ function PlaceField({ id, label, text, onText, onPick, placeholder, action }) {
 
 /* ---------- RouteMapView: Leaflet OpenStreetMap Live GPS & Route Component ---------- */
 function RouteMapView({ pts, rows, selectedWp, onSelectWp, liveGpsCoords }) {
+  const CARTO_KEY = 'cb1_57nt_1_2230ac1665c63f8ce2a8d6ac';
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const gpsMarkerRef = useRef(null);
@@ -1025,7 +1026,7 @@ function RouteMapView({ pts, rows, selectedWp, onSelectWp, liveGpsCoords }) {
     mapInstanceRef.current = map;
 
     const tileLayer = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY,
       { maxZoom: 19, subdomains: 'abcd' }
     ).addTo(map);
     map._tileLayer = tileLayer;
@@ -1051,10 +1052,10 @@ function RouteMapView({ pts, rows, selectedWp, onSelectWp, liveGpsCoords }) {
     if (!map || !map._tileLayer) return;
     map.removeLayer(map._tileLayer);
 
-    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY;
     let sub = 'abcd';
     if (mapStyle === 'voyager') {
-      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY;
     } else if (mapStyle === 'osm') {
       url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       sub = 'abc';
