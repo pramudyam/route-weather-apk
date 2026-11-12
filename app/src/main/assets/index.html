@@ -87,7 +87,13 @@ tailwind.config = {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
 <style>
-  html, body, #root { min-height: 100%; margin: 0; padding: 0; }
+  html, body, #root {
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+  }
   body {
     background: #110d26;
     color: #ffffff;
@@ -97,23 +103,30 @@ tailwind.config = {
   }
   .noscroll::-webkit-scrollbar { display: none; }
   .noscroll { -ms-overflow-style: none; scrollbar-width: none; }
+  
+  /* GPU-friendly dark glass (Zero backdrop-filter overhead for 60-120fps smooth scrolling) */
+  .backdrop-blur-md, .backdrop-blur-xl, [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
   .frosted-panel {
-    background: rgba(255, 255, 255, 0.16);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-    border-top: 1px solid rgba(255, 255, 255, 0.28);
-    box-shadow: 0 -15px 45px rgba(0, 0, 0, 0.25);
+    background: rgba(20, 16, 44, 0.94) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 -15px 45px rgba(0, 0, 0, 0.45);
   }
   .pill-card {
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    transition: transform 0.2s ease, background 0.2s ease;
-    transform: translateZ(0);
-    will-change: transform;
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transition: background 0.15s ease !important;
+    transform: none !important;
+    will-change: auto !important;
   }
-  .pill-card:hover {
-    background: rgba(255, 255, 255, 0.24);
-    transform: translateY(-2px);
+  .pill-card:hover, .pill-card:active {
+    background: rgba(255, 255, 255, 0.22) !important;
   }
   .input-glass {
     background: rgba(255, 255, 255, 0.15);
@@ -481,8 +494,24 @@ function AtmosphericCanvas({ weather, isNight, onCanvasClick }) {
     window.addEventListener('resize', onResize);
 
     let lastTime = performance.now();
+    let isScrolling = false;
+    let scrollTimer = null;
+    const onScroll = () => {
+      isScrolling = true;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => { isScrolling = false; }, 120);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
 
     function render(now) {
+      if (isScrolling) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
+      if (now - lastTime < 32) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
       const dt = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
       const st = stateRef.current;
@@ -682,6 +711,7 @@ function AtmosphericCanvas({ weather, isNight, onCanvasClick }) {
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
