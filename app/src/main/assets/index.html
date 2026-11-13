@@ -83,9 +83,6 @@ tailwind.config = {
   }
 }
 </script>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
@@ -106,57 +103,7 @@ tailwind.config = {
   }
   .noscroll::-webkit-scrollbar { display: none; }
   .noscroll { -ms-overflow-style: none; scrollbar-width: none; }
-  /* Leaflet & Live GPS Pulse Styling */
-  .leaflet-container {
-    background: #0b081a !important;
-    font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
-  }
-  .leaflet-popup-content-wrapper {
-    background: #ffffff !important;
-    border-radius: 16px !important;
-    padding: 2px !important;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
-  }
-  .leaflet-popup-tip {
-    background: #ffffff !important;
-  }
-  .gps-pulse-icon {
-    position: relative;
-    width: 24px;
-    height: 24px;
-  }
-  .gps-pulse-dot {
-    width: 14px;
-    height: 14px;
-    background: #06b6d4;
-    border: 2.5px solid #ffffff;
-    border-radius: 50%;
-    position: absolute;
-    top: 5px;
-    left: 5px;
-    box-shadow: 0 0 12px #06b6d4;
-    z-index: 2;
-  }
-  .gps-pulse-ring {
-    width: 34px;
-    height: 34px;
-    background: rgba(6, 182, 212, 0.45);
-    border-radius: 50%;
-    position: absolute;
-    top: -5px;
-    left: -5px;
-    animation: gpsPulse 1.8s infinite ease-out;
-    z-index: 1;
-  }
-  @keyframes gpsPulse {
-    0% { transform: scale(0.3); opacity: 1; }
-    100% { transform: scale(1.6); opacity: 0; }
-  }
-  .custom-wp-pin {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+  
 
   
   /* GPU-friendly dark glass (Zero backdrop-filter overhead for 60-120fps smooth scrolling) */
@@ -414,33 +361,264 @@ const QUOTES = {
 };
 
 // Batch request Open-Meteo for all waypoints in a single fast call!
-async function fetchBatchRouteWeather(wps) {
-  if (!wps || wps.length === 0) return [];
-  const lats = wps.map(w => w.lat).join(',');
-  const lons = wps.map(w => w.lon).join(',');
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=temperature_2m,weathercode&elevation=true&timezone=Asia%2FJakarta&forecast_days=3`;
+
+/* ---------- BMKG (Badan Meteorologi, Klimatologi, dan Geofisika) Engine ---------- */
+const BMKG_REGIONS = [
+  // DKI Jakarta
+  ["Jakarta Pusat", -6.18, 106.83, "31.71.01.1001"],
+  ["Jakarta Selatan", -6.26, 106.81, "31.74.04.1001"],
+  ["Jakarta Barat", -6.17, 106.76, "31.73.01.1001"],
+  ["Jakarta Timur", -6.23, 106.89, "31.75.01.1001"],
+  ["Jakarta Utara", -6.14, 106.88, "31.72.01.1001"],
+  // Banten & Jabar
+  ["Tangerang", -6.18, 106.63, "36.71.01.1001"],
+  ["Tangerang Selatan", -6.29, 106.72, "36.74.01.1001"],
+  ["Serang", -6.12, 106.15, "36.73.01.1001"],
+  ["Cilegon", -6.02, 106.05, "36.72.01.1001"],
+  ["Bogor", -6.60, 106.80, "32.71.01.1001"],
+  ["Depok", -6.40, 106.79, "32.76.01.1001"],
+  ["Bekasi", -6.23, 106.99, "32.75.01.1001"],
+  ["Karawang", -6.32, 107.34, "32.15.01.1001"],
+  ["Purwakarta", -6.56, 107.44, "32.14.01.1001"],
+  ["Subang", -6.57, 107.76, "32.13.01.1001"],
+  ["Bandung", -6.92, 107.62, "32.73.01.1001"],
+  ["Cimahi", -6.87, 107.54, "32.77.01.1001"],
+  ["Sumedang", -6.86, 107.93, "32.11.01.1001"],
+  ["Garut", -7.22, 107.90, "32.05.01.1001"],
+  ["Tasikmalaya", -7.33, 108.22, "32.78.01.1001"],
+  ["Ciamis", -7.33, 108.35, "32.07.01.1001"],
+  ["Banjar", -7.37, 108.53, "32.79.01.1001"],
+  ["Pangandaran", -7.70, 108.48, "32.18.01.1001"],
+  ["Cirebon", -6.71, 108.56, "32.74.01.1001"],
+  ["Indramayu", -6.33, 108.32, "32.12.01.1001"],
+  ["Majalengka", -6.84, 108.23, "32.10.01.1001"],
+  ["Kuningan", -6.98, 108.48, "32.08.01.1001"],
+  ["Sukabumi", -6.92, 106.93, "32.72.01.1001"],
+  ["Cianjur", -6.82, 107.14, "32.03.01.1001"],
+  // Jateng & DIY
+  ["Tegal", -6.87, 109.14, "33.76.01.1001"],
+  ["Brebes", -6.87, 109.04, "33.29.01.1001"],
+  ["Pemalang", -6.89, 109.38, "33.27.01.1001"],
+  ["Pekalongan", -6.89, 109.68, "33.75.01.1001"],
+  ["Batang", -6.91, 109.73, "33.25.01.1001"],
+  ["Kendal", -6.92, 110.20, "33.24.01.1001"],
+  ["Semarang", -6.97, 110.42, "33.74.01.1001"],
+  ["Salatiga", -7.33, 110.50, "33.73.01.1001"],
+  ["Demak", -6.89, 110.64, "33.21.01.1001"],
+  ["Kudus", -6.80, 110.84, "33.19.01.1001"],
+  ["Pati", -6.76, 111.04, "33.18.01.1001"],
+  ["Rembang", -6.71, 111.34, "33.17.01.1001"],
+  ["Jepara", -6.59, 110.68, "33.20.01.1001"],
+  ["Blora", -6.97, 111.42, "33.16.01.1001"],
+  ["Solo / Surakarta", -7.57, 110.82, "33.72.01.1001"],
+  ["Boyolali", -7.53, 110.60, "33.09.01.1001"],
+  ["Klaten", -7.70, 110.60, "33.10.01.1001"],
+  ["Sukoharjo", -7.68, 110.83, "33.11.01.1001"],
+  ["Wonogiri", -7.82, 110.93, "33.12.01.1001"],
+  ["Sragen", -7.43, 111.02, "33.14.01.1001"],
+  ["Yogyakarta", -7.80, 110.37, "34.71.01.1001"],
+  ["Sleman", -7.72, 110.36, "34.04.01.1001"],
+  ["Bantul", -7.88, 110.33, "34.02.01.1001"],
+  ["Kulon Progo", -7.83, 110.16, "34.01.01.1001"],
+  ["Gunungkidul", -7.97, 110.60, "34.03.01.1001"],
+  ["Magelang", -7.48, 110.22, "33.71.01.1001"],
+  ["Purworejo", -7.72, 110.02, "33.06.01.1001"],
+  ["Kebumen", -7.67, 109.65, "33.05.01.1001"],
+  ["Purwokerto", -7.42, 109.23, "33.02.01.1001"],
+  ["Cilacap", -7.72, 109.02, "33.01.01.1001"],
+  ["Purbalingga", -7.38, 109.37, "33.03.01.1001"],
+  ["Banjarnegara", -7.40, 109.70, "33.04.01.1001"],
+  ["Wonosobo", -7.36, 109.90, "33.07.01.1001"],
+  ["Temanggung", -7.32, 110.17, "33.23.01.1001"],
+  // Jatim & Madura
+  ["Ngawi", -7.40, 111.45, "35.21.01.1001"],
+  ["Magetan", -7.65, 111.33, "35.20.01.1001"],
+  ["Madiun", -7.63, 111.52, "35.77.01.1001"],
+  ["Ponorogo", -7.87, 111.47, "35.02.01.1001"],
+  ["Pacitan", -8.20, 111.10, "35.01.01.1001"],
+  ["Nganjuk", -7.60, 111.90, "35.18.01.1001"],
+  ["Kediri", -7.82, 112.02, "35.71.01.1001"],
+  ["Blitar", -8.10, 112.17, "35.72.01.1001"],
+  ["Tulungagung", -8.07, 111.90, "35.04.01.1001"],
+  ["Trenggalek", -8.05, 111.72, "35.03.01.1001"],
+  ["Bojonegoro", -7.15, 111.88, "35.22.01.1001"],
+  ["Tuban", -6.90, 112.05, "35.23.01.1001"],
+  ["Lamongan", -7.12, 112.42, "35.24.01.1001"],
+  ["Gresik", -7.15, 112.65, "35.25.01.1001"],
+  ["Surabaya", -7.26, 112.75, "35.78.01.1001"],
+  ["Sidoarjo", -7.45, 112.72, "35.15.01.1001"],
+  ["Mojokerto", -7.47, 112.43, "35.76.01.1001"],
+  ["Jombang", -7.55, 112.23, "35.17.01.1001"],
+  ["Pasuruan", -7.65, 112.91, "35.75.01.1001"],
+  ["Probolinggo", -7.75, 113.22, "35.74.01.1001"],
+  ["Malang", -7.98, 112.63, "35.73.01.1001"],
+  ["Batu", -7.87, 112.53, "35.79.01.1001"],
+  ["Lumajang", -8.13, 113.22, "35.08.01.1001"],
+  ["Jember", -8.17, 113.70, "35.09.01.1001"],
+  ["Bondowoso", -7.91, 113.82, "35.11.01.1001"],
+  ["Situbondo", -7.71, 114.01, "35.12.01.1001"],
+  ["Banyuwangi", -8.22, 114.37, "35.10.01.1001"],
+  ["Bangkalan", -7.03, 112.75, "35.26.01.1001"],
+  ["Sampang", -7.19, 113.24, "35.27.01.1001"],
+  ["Pamekasan", -7.16, 113.47, "35.28.01.1001"],
+  ["Sumenep", -7.02, 113.87, "35.29.01.1001"],
+  // Bali, NTB, NTT
+  ["Denpasar", -8.67, 115.21, "51.71.01.1001"],
+  ["Kuta / Badung", -8.72, 115.17, "51.03.01.1001"],
+  ["Gianyar / Ubud", -8.51, 115.26, "51.04.01.1001"],
+  ["Singaraja / Buleleng", -8.11, 115.09, "51.08.01.1001"],
+  ["Mataram", -8.58, 116.12, "52.71.01.1001"],
+  ["Kupang", -10.18, 123.61, "53.71.01.1001"],
+  // Sumatera
+  ["Banda Aceh", 5.55, 95.32, "11.71.01.1001"],
+  ["Medan", 3.60, 98.67, "12.71.01.1001"],
+  ["Padang", -0.95, 100.42, "13.71.01.1001"],
+  ["Bukittinggi", -0.31, 100.37, "13.75.01.1001"],
+  ["Pekanbaru", 0.51, 101.45, "14.71.01.1001"],
+  ["Dumai", 1.67, 101.45, "14.72.01.1001"],
+  ["Batam", 1.13, 104.05, "21.71.10.1001"],
+  ["Tanjung Pinang", 0.92, 104.45, "21.72.01.1001"],
+  ["Jambi", -1.61, 103.61, "15.71.01.1001"],
+  ["Palembang", -2.98, 104.78, "16.71.01.1001"],
+  ["Bengkulu", -3.80, 102.27, "17.71.01.1001"],
+  ["Bandar Lampung", -5.45, 105.27, "18.71.01.1001"],
+  ["Pangkal Pinang", -2.13, 106.12, "19.71.01.1001"],
+  // Kalimantan
+  ["Pontianak", -0.03, 109.34, "61.71.01.1001"],
+  ["Palangka Raya", -2.21, 113.92, "62.71.01.1001"],
+  ["Banjarmasin", -3.32, 114.59, "63.71.01.1001"],
+  ["Samarinda", -0.50, 117.15, "64.72.01.1001"],
+  ["Balikpapan", -1.27, 116.83, "64.71.01.1001"],
+  ["Tarakan", 3.30, 117.63, "65.71.01.1001"],
+  // Sulawesi
+  ["Makassar", -5.15, 119.43, "73.71.01.1001"],
+  ["Manado", 1.47, 124.84, "71.71.01.1001"],
+  ["Palu", -0.90, 119.88, "72.71.01.1001"],
+  ["Kendari", -4.00, 122.51, "74.71.01.1001"],
+  ["Gorontalo", 0.54, 123.06, "75.71.01.1001"],
+  // Maluku & Papua
+  ["Ambon", -3.70, 128.18, "81.71.01.1001"],
+  ["Jayapura", -2.54, 140.72, "91.71.01.1001"]
+];
+
+function getNearestBmkgCode(lat, lon) {
+  let best = BMKG_REGIONS[0];
+  let minD = Infinity;
+  for (let i = 0; i < BMKG_REGIONS.length; i++) {
+    const r = BMKG_REGIONS[i];
+    const d = (lat - r[1]) ** 2 + (lon - r[2]) ** 2;
+    if (d < minD) {
+      minD = d;
+      best = r;
+    }
+  }
+  return best[3];
+}
+
+function mapBmkgKind(desc, code) {
+  if (!desc) desc = '';
+  const d = desc.toLowerCase();
+  if (d.includes('petir') || d.includes('kilat') || code === 95 || code === 97) return 'storm';
+  if (d.includes('lebat') || code === 65) return 'heavy';
+  if (d.includes('hujan') || code === 60 || code === 61 || code === 63) return 'rain';
+  if (d.includes('cerah berawan') || code === 1 || code === 2) return 'partly';
+  if (d.includes('berawan') || d.includes('kabut') || d.includes('asap') || code === 3 || code === 4) return 'cloud';
+  if (d.includes('cerah') || code === 0) return 'sun';
+  return 'sun';
+}
+
+const bmkgCache = new Map();
+async function fetchBmkgData(adm4) {
+  if (bmkgCache.has(adm4)) return bmkgCache.get(adm4);
   try {
-    const r = await fetch(url, { signal: sig() });
-    if (!r.ok) throw new Error('Status ' + r.status);
-    const data = await r.json();
-    if (Array.isArray(data)) {
-      return data.map((item, idx) => ({
-        hourly: item.hourly || mockHourly(wps[idx].lat, wps[idx].lon),
-        elevation: Math.round(item.elevation != null ? item.elevation : 50)
-      }));
-    } else {
-      return [{
-        hourly: data.hourly || mockHourly(wps[0].lat, wps[0].lon),
-        elevation: Math.round(data.elevation != null ? data.elevation : 50)
-      }];
+    const r = await fetch('https://api.bmkg.go.id/publik/prakiraan-cuaca?adm4=' + adm4, { signal: sig() });
+    const json = await r.json();
+    if (json && json.data && json.data[0]) {
+      bmkgCache.set(adm4, json);
+      return json;
     }
   } catch (e) {
-    console.warn('Batch route weather fetch failed, using reliable fallback:', e);
-    return wps.map(w => ({
-      hourly: mockHourly(w.lat, w.lon),
-      elevation: 50
-    }));
+    console.warn('BMKG fetch failed for ' + adm4 + ':', e);
   }
+  return null;
+}
+
+function extractBmkgTimeline(bmkgJson) {
+  if (!bmkgJson || !bmkgJson.data || !bmkgJson.data[0] || !bmkgJson.data[0].cuaca) return [];
+  const days = bmkgJson.data[0].cuaca;
+  const list = [];
+  for (let d = 0; d < days.length; d++) {
+    const hours = days[d];
+    for (let h = 0; h < hours.length; h++) {
+      const it = hours[h];
+      list.push({
+        timeMs: new Date(it.datetime).getTime(),
+        localTime: it.local_datetime,
+        t: it.t,
+        weather: it.weather,
+        desc: it.weather_desc,
+        hu: it.hu,
+        ws: it.ws,
+        kind: mapBmkgKind(it.weather_desc, it.weather)
+      });
+    }
+  }
+  return list;
+}
+
+function lookupBmkgAt(timeline, targetMs) {
+  if (!timeline || timeline.length === 0) return null;
+  let best = timeline[0];
+  let minDiff = Math.abs(timeline[0].timeMs - targetMs);
+  for (let i = 1; i < timeline.length; i++) {
+    const diff = Math.abs(timeline[i].timeMs - targetMs);
+    if (diff < minDiff) {
+      minDiff = diff;
+      best = timeline[i];
+    }
+  }
+  return best;
+}
+
+async function fetchBatchRouteWeather(wps) {
+  if (!wps || wps.length === 0) return [];
+
+  // 1. Fetch BMKG official forecast for unique regencies along the route
+  const uniqueBmkgCodes = [...new Set(wps.map(w => getNearestBmkgCode(w.lat, w.lon)))];
+  const bmkgMap = new Map();
+  await Promise.all(
+    uniqueBmkgCodes.map(async code => {
+      const data = await fetchBmkgData(code);
+      if (data) bmkgMap.set(code, extractBmkgTimeline(data));
+    })
+  );
+
+  // 2. Fetch elevation data
+  let omArray = [];
+  try {
+    const lats = wps.map(w => w.lat).join(',');
+    const lons = wps.map(w => w.lon).join(',');
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lats + '&longitude=' + lons + '&hourly=temperature_2m,weathercode&elevation=true&timezone=Asia%2FJakarta&forecast_days=3';
+    const r = await fetch(url, { signal: sig() });
+    const j = await r.json();
+    omArray = Array.isArray(j) ? j : [j];
+  } catch (e) {
+    console.warn('Elevation fetch fallback:', e);
+  }
+
+  // 3. Return combined BMKG forecast + elevation
+  return wps.map((w, idx) => {
+    const bmkgCode = getNearestBmkgCode(w.lat, w.lon);
+    const bmkgTimeline = bmkgMap.get(bmkgCode) || [];
+    const omItem = omArray[idx] || omArray[0] || {};
+    const elevation = omItem.elevation != null ? Math.round(omItem.elevation) : 45;
+
+    return {
+      elevation,
+      bmkgTimeline,
+      hourly: omItem.hourly || null
+    };
+  });
 }
 
 async function fetchHourlyWithElevation(lat, lon) {
@@ -943,460 +1121,116 @@ function MiniWeatherIcon({ type, size = 28 }) {
   );
 }
 
-/* ---------- Single Select Popup Dialog Modal (Nasional + 25.276 Kelurahan Jawa) ---------- */
+/* ---------- Search Field (Search Biasa di Depan, Anti-Tutup Saat Di-scroll) ---------- */
 function PlaceField({ id, label, text, onText, onPick, placeholder, action }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [modalQuery, setModalQuery] = useState('');
   const [opts, setOpts] = useState([]);
-  const searchInputRef = useRef(null);
-
-  const POPULAR_CITIES = [
-    { n: 'Jakarta', s: 'DKI Jakarta', c: [-6.2088, 106.8456] },
-    { n: 'Bandung', s: 'Kota Bandung, Jabar', c: [-6.9175, 107.6191] },
-    { n: 'Surabaya', s: 'Kota Surabaya, Jatim', c: [-7.2575, 112.7521] },
-    { n: 'Semarang', s: 'Kota Semarang, Jateng', c: [-6.9667, 110.4167] },
-    { n: 'Yogyakarta', s: 'Kota Yogyakarta, DIY', c: [-7.7956, 110.3695] },
-    { n: 'Solo / Surakarta', s: 'Kota Surakarta, Jateng', c: [-7.5666, 110.8167] },
-    { n: 'Denpasar', s: 'Kota Denpasar, Bali', c: [-8.6705, 115.2126] },
-    { n: 'Malang', s: 'Kota Malang, Jatim', c: [-7.9797, 112.6304] },
-    { n: 'Batam', s: 'Kota Batam, Kepulauan Riau', c: [1.1301, 104.0529] },
-    { n: 'Medan', s: 'Kota Medan, Sumut', c: [3.5952, 98.6722] },
-    { n: 'Makassar', s: 'Kota Makassar, Sulsel', c: [-5.1477, 119.4327] },
-    { n: 'Bogor', s: 'Kota Bogor, Jabar', c: [-6.595, 106.8167] },
-    { n: 'Cirebon', s: 'Kota Cirebon, Jabar', c: [-6.7063, 108.557] }
-  ];
-
-  const handleOpenModal = () => {
-    setModalQuery('');
-    setOpts(POPULAR_CITIES);
-    setIsOpen(true);
-    setTimeout(() => {
-      if (searchInputRef.current) searchInputRef.current.focus();
-    }, 150);
-  };
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
 
   useEffect(() => {
-    if (!isOpen) return;
-    const q = modalQuery.trim();
+    const q = text ? text.trim() : '';
     if (q.length < 2) {
-      setOpts(POPULAR_CITIES);
+      setOpts([]);
       return;
     }
     const local = searchLocal(q);
     setOpts(local);
-  }, [modalQuery, isOpen]);
+  }, [text]);
 
-  const handleSelectOption = (o) => {
+  useEffect(() => {
+    const onPointerDown = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, []);
+
+  const handlePick = (o) => {
     setIsOpen(false);
     onPick(o);
   };
 
+  const clearInput = () => {
+    onText('');
+    setOpts([]);
+    setIsOpen(false);
+  };
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <div className="flex items-center justify-between mb-1.5">
-        <label className="text-[12px] font-bold text-white/90 tracking-wide">{label}</label>
+        <label htmlFor={id} className="text-[12px] font-bold text-white/90 tracking-wide">{label}</label>
         {action}
       </div>
 
-      {/* Single Select Trigger Card */}
-      <button
-        type="button"
-        id={id}
-        onClick={handleOpenModal}
-        className="input-glass h-12 w-full rounded-2xl px-4 flex items-center justify-between text-left active:scale-[0.98] transition-all border border-white/20 bg-white/10 hover:bg-white/15 shadow-sm"
-      >
-        <div className="flex items-center gap-2.5 min-w-0 pr-2">
-          <span className="text-[14px] text-cyan-400 shrink-0">📍</span>
-          <span className={'text-[13px] truncate ' + (text ? 'text-white font-bold' : 'text-white/50 font-normal')}>
-            {text || placeholder || 'Pilih kota / daerah…'}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0 text-white/50">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400/90 bg-white/10 px-2 py-0.5 rounded-md">Pilih</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
-      </button>
+      <div className="relative">
+        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[14px] pointer-events-none">
+          📍
+        </span>
+        <input
+          id={id}
+          type="text"
+          value={text}
+          autoComplete="off"
+          placeholder={placeholder || "Ketik kota / kelurahan…"}
+          onChange={e => {
+            onText(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => {
+            if (text && text.trim().length >= 2) setIsOpen(true);
+          }}
+          className="input-glass h-12 w-full rounded-2xl pl-10 pr-10 text-[13px] font-bold text-white placeholder-white/50 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 shadow-sm"
+        />
 
-      {/* Pop-up Modal Dialog Single Select */}
-      {isOpen && (
+        {text && (
+          <button
+            type="button"
+            onClick={clearInput}
+            className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-white/70 hover:text-white text-xs font-bold active:scale-90 transition-all"
+            title="Hapus teks"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Result Dropdown: Protected from closing when scrolling */}
+      {isOpen && opts.length > 0 && (
         <div
-          className="fixed inset-0 z-[999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md"
-          onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
+          onPointerDown={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
+          className="absolute left-0 right-0 z-50 mt-1.5 max-h-64 overflow-y-auto rounded-2xl border border-white/20 bg-[#161133] p-1.5 shadow-2xl divide-y divide-white/5 noscroll"
         >
-          <div className="w-full sm:max-w-lg bg-[#140f2e] border border-white/20 rounded-t-[32px] sm:rounded-3xl p-5 max-h-[85vh] flex flex-col shadow-2xl animate-fadeIn">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3.5 border-b border-white/15">
-              <div className="flex items-center gap-2">
-                <span className="text-cyan-400 text-[18px]">📍</span>
-                <span className="text-[15px] font-extrabold text-white">{label || 'Pilih Daerah'}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 hover:text-white hover:bg-white/20 active:scale-95 transition-all text-sm font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Search Input Box INSIDE the Modal */}
-            <div className="pt-3.5 pb-2">
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/50 text-[14px]">🔍</span>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={modalQuery}
-                  onChange={(e) => setModalQuery(e.target.value)}
-                  placeholder="Ketik nama kota, kecamatan, kelurahan…"
-                  className="w-full h-11 pl-10 pr-9 rounded-2xl bg-white/15 border border-white/25 text-[13px] font-bold text-white placeholder-white/50 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
-                />
-                {modalQuery && (
-                  <button
-                    type="button"
-                    onClick={() => { setModalQuery(''); if (searchInputRef.current) searchInputRef.current.focus(); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white text-xs p-1 font-bold"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Quick Popular City Chips (Shown when search is empty) */}
-            {!modalQuery && (
-              <div className="pb-3 border-b border-white/10">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-white/60 mb-1.5 px-0.5">
-                  Pilihan Populer
-                </div>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto noscroll">
-                  {POPULAR_CITIES.slice(0, 8).map((city, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectOption(city)}
-                      className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-white/10 hover:bg-cyan-500/30 text-white/90 border border-white/15 active:scale-95 transition-all"
-                    >
-                      {city.n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Single Select Results List */}
-            <div className="mt-2 flex-1 overflow-y-auto noscroll divide-y divide-white/5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-white/60 py-1 px-1">
-                {modalQuery ? 'Hasil Pencarian (' + opts.length + ')' : 'Daftar Daerah'}
-              </div>
-
-              {opts.length === 0 ? (
-                <div className="text-center py-8 text-white/50 text-[13px]">
-                  Tidak ada daerah yang cocok dengan "{modalQuery}"
-                </div>
-              ) : (
-                opts.map((o, idx) => {
-                  const isCurrent = text && (text === o.n || text.startsWith(o.n + ' ('));
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectOption(o)}
-                      className={'w-full text-left px-3.5 py-3 rounded-2xl flex items-center justify-between gap-3 transition-all active:scale-[0.99] my-0.5 ' + (
-                        isCurrent
-                          ? 'bg-cyan-500/25 border border-cyan-400/40 text-cyan-200'
-                          : 'hover:bg-white/10 text-white'
-                      )}
-                    >
-                      <div className="min-w-0 flex items-center gap-2.5">
-                        <span className="text-[13px] text-cyan-400/80 shrink-0">📍</span>
-                        <div className="truncate">
-                          <div className="text-[13px] font-bold truncate leading-snug">{o.n}</div>
-                          {o.s && <div className="text-[11px] text-white/60 truncate font-medium">{o.s}</div>}
-                        </div>
-                      </div>
-                      {isCurrent ? (
-                        <span className="text-cyan-400 font-black text-sm shrink-0">✓</span>
-                      ) : (
-                        <span className="text-white/20 text-xs shrink-0">➔</span>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="pt-2 text-center text-[10px] text-white/40">
-              Database offline 25.276 kelurahan se-Jawa & kota nasional
-            </div>
-
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
+            <span>Hasil Pencarian ({opts.length})</span>
+            <span className="text-[9px] text-white/40">Scroll untuk memilih</span>
           </div>
+
+          {opts.map((o, idx) => {
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handlePick(o)}
+                className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-white/10 active:bg-cyan-500/25 flex items-center justify-between gap-2 transition-colors my-0.5 text-white"
+              >
+                <div className="min-w-0">
+                  <div className="text-[13px] font-bold truncate leading-tight text-white">{o.n}</div>
+                  {o.s && <div className="text-[11px] text-white/60 truncate font-medium mt-0.5">{o.s}</div>}
+                </div>
+                <span className="text-white/30 text-xs shrink-0">➔</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-
-/* ---------- RouteMapView: Leaflet OpenStreetMap Live GPS & Route Component ---------- */
-function RouteMapView({ pts, rows, selectedWp, onSelectWp, liveGpsCoords }) {
-  const CARTO_KEY = 'cb1_57nt_1_2230ac1665c63f8ce2a8d6ac';
-  const mapContainerRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const gpsMarkerRef = useRef(null);
-  const markersGroupRef = useRef(null);
-  const polylineRef = useRef(null);
-  const [mapStyle, setMapStyle] = useState('dark'); // 'dark' | 'voyager' | 'osm'
-  const [isFollowingGps, setIsFollowingGps] = useState(false);
-
-  useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return;
-    if (typeof L === 'undefined') return;
-
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: false,
-      attributionControl: false
-    });
-    mapInstanceRef.current = map;
-
-    const tileLayer = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY,
-      { maxZoom: 19, subdomains: 'abcd' }
-    ).addTo(map);
-    map._tileLayer = tileLayer;
-
-    L.control.zoom({ position: 'topright' }).addTo(map);
-
-    if (rows && rows.length > 0) {
-      map.setView([rows[0].lat, rows[0].lon], 10);
-    } else {
-      map.setView([-6.2088, 106.8456], 10);
-    }
-
-    setTimeout(() => { map.invalidateSize(); }, 300);
-
-    return () => {
-      map.remove();
-      mapInstanceRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !map._tileLayer) return;
-    map.removeLayer(map._tileLayer);
-
-    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY;
-    let sub = 'abcd';
-    if (mapStyle === 'voyager') {
-      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=' + CARTO_KEY;
-    } else if (mapStyle === 'osm') {
-      url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-      sub = 'abc';
-    }
-    const layer = L.tileLayer(url, { maxZoom: 19, subdomains: sub }).addTo(map);
-    map._tileLayer = layer;
-  }, [mapStyle]);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || typeof L === 'undefined') return;
-
-    if (markersGroupRef.current) map.removeLayer(markersGroupRef.current);
-    if (polylineRef.current) map.removeLayer(polylineRef.current);
-
-    const markersGroup = L.layerGroup().addTo(map);
-    markersGroupRef.current = markersGroup;
-
-    const lineCoords = pts && pts.length > 0 ? pts : rows.map(r => [r.lat, r.lon]);
-    if (lineCoords.length > 1) {
-      const glowLine = L.polyline(lineCoords, {
-        color: '#0284c7',
-        weight: 8,
-        opacity: 0.35,
-        lineCap: 'round',
-        lineJoin: 'round'
-      });
-      const routeLine = L.polyline(lineCoords, {
-        color: '#38bdf8',
-        weight: 4.5,
-        opacity: 0.95,
-        lineCap: 'round',
-        lineJoin: 'round'
-      });
-      const routeGroup = L.featureGroup([glowLine, routeLine]).addTo(map);
-      polylineRef.current = routeGroup;
-
-      try {
-        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
-      } catch (e) {}
-    }
-
-    rows.forEach((w, idx) => {
-      const isStart = idx === 0;
-      const isEnd = idx === rows.length - 1;
-      const isSel = selectedWp === idx;
-      const k = w.wx ? kind(w.wx.c) : 'sun';
-      const tempVal = w.wx ? Math.round(w.wx.t) : 28;
-      const condText = w.wx ? LBL[k] : 'Cerah';
-
-      let markerHtml = '';
-      if (isStart) {
-        markerHtml = '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-white font-black text-xs shadow-lg border-2 border-white ring-4 ring-emerald-500/30">A</div>';
-      } else if (isEnd) {
-        markerHtml = '<div class="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500 text-white font-black text-xs shadow-lg border-2 border-white ring-4 ring-rose-500/30">B</div>';
-      } else {
-        markerHtml = '<div class="flex items-center gap-1 px-1.5 py-0.5 rounded-full ' + (isSel ? 'bg-amber-400 text-slate-950 font-black ring-4 ring-amber-400/40' : 'bg-slate-900/90 text-white border border-white/40') + ' text-[10px] shadow-md whitespace-nowrap"><span>' + tempVal + '°</span></div>';
-      }
-
-      const icon = L.divIcon({
-        className: 'custom-wp-pin',
-        html: markerHtml,
-        iconSize: [isStart || isEnd ? 32 : 28, isStart || isEnd ? 32 : 20],
-        iconAnchor: [isStart || isEnd ? 16 : 14, isStart || isEnd ? 16 : 10]
-      });
-
-      const popupHtml = `
-        <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 170px; color: #1e1939;">
-          <div style="font-weight: 800; font-size: 13px; color: #0f172a; margin-bottom: 2px;">
-            ${isStart ? '🏁 Titik Awal: ' : isEnd ? '🏁 Titik Akhir: ' : '📍 '}${w.name}
-          </div>
-          <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
-            ${w.km} km · ETA ${hhmm(w.eta)} ${w.elevation != null ? `· ⛰️ ${w.elevation} mdpl` : ''}
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 6px 8px; border-radius: 8px;">
-            <span style="font-size: 12px; font-weight: 700; color: #1e293b;">${condText}</span>
-            <span style="font-size: 14px; font-weight: 900; color: #0284c7;">${tempVal}°C</span>
-          </div>
-        </div>
-      `;
-
-      const m = L.marker([w.lat, w.lon], { icon }).addTo(markersGroup).bindPopup(popupHtml);
-      m.on('click', () => {
-        if (onSelectWp) onSelectWp(idx);
-      });
-    });
-  }, [pts, rows, selectedWp]);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || typeof L === 'undefined') return;
-
-    if (!liveGpsCoords) {
-      if (gpsMarkerRef.current) {
-        map.removeLayer(gpsMarkerRef.current);
-        gpsMarkerRef.current = null;
-      }
-      return;
-    }
-
-    const gpsHtml = '<div class="gps-pulse-icon"><div class="gps-pulse-ring"></div><div class="gps-pulse-dot"></div></div>';
-    const gpsIcon = L.divIcon({
-      className: 'gps-div-icon',
-      html: gpsHtml,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
-    });
-
-    if (!gpsMarkerRef.current) {
-      gpsMarkerRef.current = L.marker(liveGpsCoords, { icon: gpsIcon, zIndexOffset: 1000 })
-        .addTo(map)
-        .bindPopup('<b style="color:#0f172a">Posisi GPS Anda Saat Ini</b>');
-    } else {
-      gpsMarkerRef.current.setLatLng(liveGpsCoords);
-    }
-
-    if (isFollowingGps) {
-      map.panTo(liveGpsCoords, { animate: true, duration: 0.8 });
-    }
-  }, [liveGpsCoords, isFollowingGps]);
-
-  const fitRoute = () => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-    setIsFollowingGps(false);
-    const lineCoords = pts && pts.length > 0 ? pts : rows.map(r => [r.lat, r.lon]);
-    if (lineCoords.length > 1) {
-      const bounds = L.latLngBounds(lineCoords);
-      map.fitBounds(bounds, { padding: [40, 40] });
-    }
-  };
-
-  const centerGps = () => {
-    const map = mapInstanceRef.current;
-    if (!map || !liveGpsCoords) return;
-    setIsFollowingGps(true);
-    map.setView(liveGpsCoords, 14, { animate: true });
-  };
-
-  const toggleStyle = () => {
-    setMapStyle(s => s === 'dark' ? 'voyager' : s === 'voyager' ? 'osm' : 'dark');
-  };
-
-  const totalKm = rows.length > 0 ? rows[rows.length - 1].km : 0;
-  const maxElev = rows.reduce((mx, r) => Math.max(mx, r.elevation || 0), 0);
-
-  return (
-    <div className="relative rounded-3xl overflow-hidden border border-white/20 shadow-2xl bg-[#0b081a]">
-      <div className="absolute top-2 left-2 right-14 z-[400] flex items-center gap-2 overflow-x-auto noscroll p-1">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-white/20 backdrop-blur-md text-[11px] font-bold text-white shadow-lg">
-          <span className="text-cyan-400">🛣️</span>
-          <span>{totalKm} km</span>
-        </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/85 border border-white/20 backdrop-blur-md text-[11px] font-bold text-white shadow-lg">
-          <span className="text-amber-400">⛰️ Max</span>
-          <span>{maxElev} mdpl</span>
-        </div>
-        {liveGpsCoords && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/85 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 shadow-lg">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>GPS Aktif</span>
-          </div>
-        )}
-      </div>
-
-      <div ref={mapContainerRef} style={{ width: '100%', height: '400px' }} />
-
-      <div className="absolute bottom-3 right-3 z-[400] flex flex-col gap-2">
-        {liveGpsCoords && (
-          <button
-            type="button"
-            onClick={centerGps}
-            className={'w-10 h-10 rounded-2xl flex items-center justify-center shadow-xl border transition-all active:scale-95 ' + (isFollowingGps ? 'bg-cyan-500 text-slate-950 border-white ring-4 ring-cyan-500/30' : 'bg-slate-900/90 text-white border-white/30 hover:bg-slate-800')}
-            title="Pusatkan ke GPS Saya"
-          >
-            🎯
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={fitRoute}
-          className="w-10 h-10 rounded-2xl flex items-center justify-center bg-slate-900/90 text-white border border-white/30 shadow-xl hover:bg-slate-800 active:scale-95 transition-all text-[13px] font-bold"
-          title="Zoom Pas Seluruh Rute"
-        >
-          🔍
-        </button>
-        <button
-          type="button"
-          onClick={toggleStyle}
-          className="w-10 h-10 rounded-2xl flex items-center justify-center bg-slate-900/90 text-white border border-white/30 shadow-xl hover:bg-slate-800 active:scale-95 transition-all text-[13px]"
-          title="Ganti Tampilan Peta (Dark / Voyager / OSM)"
-        >
-          {mapStyle === 'dark' ? '🌙' : mapStyle === 'voyager' ? '🗺️' : '☀️'}
-        </button>
-      </div>
-
-      <div className="px-4 py-2 bg-slate-950/90 border-t border-white/10 flex items-center justify-between text-[11px] text-white/70">
-        <span>Klik marker rute untuk melihat detail cuaca titik</span>
-        <span className="text-[10px] text-cyan-400 font-bold uppercase">{mapStyle} Map</span>
-      </div>
-    </div>
-  );
-}
 
 /* ---------- Main Application (UI/UX uiuxnew.png) ---------- */
 function App() {
@@ -1428,8 +1262,6 @@ function App() {
   const [toT, setToT] = useState('');
   const [toC, setToC] = useState(null);
   const [route, setRoute] = useState({ o: '', d: '', wps: [], real: false, pts: null });
-  const [routeViewMode, setRouteViewMode] = useState('map'); // 'map' | 'list'
-  const [liveGpsCoords, setLiveGpsCoords] = useState(null);
   const [fc, setFc] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeErr, setRouteErr] = useState('');
@@ -1453,7 +1285,22 @@ function App() {
   // Load weather & elevation data
   const loadLive = async (lat, lon, name) => {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia%2FJakarta&forecast_days=7`;
+      // 1. Fetch Official BMKG forecast for nearest Indonesian administrative region
+      const bmkgCode = getNearestBmkgCode(lat, lon);
+      const bmkgJson = await fetchBmkgData(bmkgCode);
+      let bmkgTimeline = [];
+      if (bmkgJson) {
+        bmkgTimeline = extractBmkgTimeline(bmkgJson);
+        const curBmkg = bmkgTimeline[0];
+        if (curBmkg) {
+          setLiveTemp(Math.round(curBmkg.t));
+          setLiveKind(curBmkg.kind);
+          setLiveDesc(curBmkg.desc);
+        }
+      }
+
+      // 2. Fetch daily forecast & elevation
+      const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current=temperature_2m,weathercode,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min&elevation=true&timezone=Asia%2FJakarta&forecast_days=7';
       const res = await fetch(url);
       const data = await res.json();
       if (data.current) {
@@ -1489,18 +1336,31 @@ function App() {
         let idx = data.hourly.time.findIndex(t => t >= curHourIso);
         if (idx < 0) idx = 0;
         const strip = [];
-        for (let i = idx; i < idx + 24 && i < data.hourly.time.length; i++) {
-          const rawTime = data.hourly.time[i];
-          const timePart = rawTime.split('T')[1].slice(0, 5);
-          const datePart = rawTime.split('T')[0];
-          const isTomorrow = datePart !== todayDateStr;
-          const k = kind(data.hourly.weathercode[i]);
-          strip.push({
-            time: i === idx ? 'NOW' : timePart,
-            dayLabel: isTomorrow ? 'BESOK' : '',
-            temp: Math.round(data.hourly.temperature_2m[i]),
-            kind: k
+        if (bmkgTimeline && bmkgTimeline.length > 0) {
+          bmkgTimeline.slice(0, 8).forEach((slot, sIdx) => {
+            const timePart = slot.localTime ? slot.localTime.split(' ')[1].slice(0, 5) : '00:00';
+            strip.push({
+              time: sIdx === 0 ? 'NOW' : timePart,
+              dayLabel: sIdx > 4 ? 'BESOK' : '',
+              temp: Math.round(slot.t),
+              desc: slot.desc,
+              kind: slot.kind
+            });
           });
+        } else {
+          for (let i = idx; i < idx + 24 && i < data.hourly.time.length; i++) {
+            const rawTime = data.hourly.time[i];
+            const timePart = rawTime.split('T')[1].slice(0, 5);
+            const datePart = rawTime.split('T')[0];
+            const isTomorrow = datePart !== todayDateStr;
+            const k = kind(data.hourly.weathercode[i]);
+            strip.push({
+              time: i === idx ? 'NOW' : timePart,
+              dayLabel: isTomorrow ? 'BESOK' : '',
+              temp: Math.round(data.hourly.temperature_2m[i]),
+              kind: k
+            });
+          }
         }
         setLiveHourly(strip);
       }
@@ -1610,7 +1470,6 @@ function App() {
       setRoute({ o: fromT.trim(), d: toT.trim(), wps, real: !!rt, pts: rt ? rt.pts : wps.map(w => [w.lat, w.lon]) });
       setDep(0);
       setSelectedWp(null);
-      setRouteViewMode('map');
       setActiveTab('route');
     } catch (e) {
       setRouteErr('Gagal menghitung rute: ' + e.message);
@@ -1631,11 +1490,42 @@ function App() {
   const rows = useMemo(() => route.wps.map((w, i) => {
     const eta = depMs + (w.km / eff * 60) * 6e4;
     const fData = fc ? fc[i] : null;
+
+    let wxInfo = null;
+    if (fData) {
+      if (fData.bmkgTimeline && fData.bmkgTimeline.length > 0) {
+        const bItem = lookupBmkgAt(fData.bmkgTimeline, eta);
+        if (bItem) {
+          wxInfo = {
+            t: bItem.t,
+            c: bItem.weather,
+            desc: bItem.desc,
+            kind: bItem.kind,
+            hu: bItem.hu,
+            ws: bItem.ws,
+            isBmkg: true
+          };
+        }
+      }
+      if (!wxInfo && fData.hourly) {
+        const omW = lookup(fData.hourly, eta);
+        if (omW) {
+          wxInfo = {
+            t: omW.t,
+            c: omW.c,
+            desc: LBL[kind(omW.c)],
+            kind: kind(omW.c),
+            isBmkg: false
+          };
+        }
+      }
+    }
+
     return {
       ...w,
       eta,
       elevation: fData ? fData.elevation : null,
-      wx: fData ? lookup(fData.hourly, eta) : null
+      wx: wxInfo
     };
   }), [depMs, fc, route, eff]);
 
@@ -1723,15 +1613,19 @@ function App() {
         <div className="text-[17px] font-extrabold text-white tracking-[0.22em] uppercase drop-shadow-md truncate max-w-[320px] mx-auto">
           {displayLocation}
         </div>
-        {/* Realtime Celestial Status Badge */}
-        <div className="mt-1 flex items-center justify-center">
+        {/* Realtime Celestial & Official BMKG Badge */}
+        <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-semibold text-white/90 shadow-sm backdrop-blur-md">
             <span>{isNight ? getMoonPhaseData().icon : '☀️'}</span>
             <span>
               {isNight
                 ? `${getMoonPhaseData().name} · ${getMoonPhaseData().illumination}% Terang`
-                : `Matahari Siang (Busur Pukul ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB)`}
+                : `Matahari (Busur ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB)`}
             </span>
+          </div>
+          <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-cyan-950/70 border border-cyan-400/30 text-[10px] font-bold text-cyan-300 shadow-sm">
+            <span>🇮🇩</span>
+            <span>Prakiraan Resmi BMKG</span>
           </div>
         </div>
       </div>
@@ -2140,7 +2034,7 @@ function App() {
                 {selectedWp != null && (
                   <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/20 bg-white/15 px-4 py-3 text-[12px] text-white shadow-lg backdrop-blur-md">
                     <span>
-                      📍 Titik <b>{activeWp.name}</b>: <b>{LBL[kind(activeWp.wx?.c || 0)]}</b> ({Math.round(activeWp.wx?.t || 0)}°C) · 🏔️ {activeWp.elevation || 0} mdpl
+                      📍 Titik <b>{activeWp.name}</b>: <b>{activeWp.wx?.desc || LBL[kind(activeWp.wx?.c || 0)]}</b> ({Math.round(activeWp.wx?.t || 0)}°C) · 🏔️ {activeWp.elevation || 0} mdpl
                     </span>
                     <button
                       onClick={() => setSelectedWp(null)}
@@ -2151,48 +2045,17 @@ function App() {
                   </div>
                 )}
 
-                {/* Route View Switcher Tabs (Daftar vs Peta OpenMap) */}
-                <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/20 bg-white/10 p-1 shadow-lg">
-                  <button
-                    type="button"
-                    onClick={() => setRouteViewMode('map')}
-                    className={'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold transition-all ' + (routeViewMode === 'map' ? 'bg-cyan-400 text-slate-950 shadow-md font-black' : 'text-white/80 hover:text-white')}
-                  >
-                    <span>🗺️</span> Peta OpenMap (Live GPS)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRouteViewMode('list')}
-                    className={'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold transition-all ' + (routeViewMode === 'list' ? 'bg-white text-slate-900 shadow-md' : 'text-white/80 hover:text-white')}
-                  >
-                    <span>📋</span> Daftar Titik ({rows.length})
-                  </button>
-                </div>
-
-                {/* Conditional View: Leaflet Map View vs List View */}
-                {routeViewMode === 'map' && (
-                  <div className="mt-4">
-                    <RouteMapView
-                      pts={route.pts || rows.map(r => [r.lat, r.lon])}
-                      rows={rows}
-                      selectedWp={selectedWp}
-                      onSelectWp={setSelectedWp}
-                      liveGpsCoords={liveGpsCoords}
-                    />
-                  </div>
-                )}
-
                 {/* Waypoint list (20 - 30 Checkpoints lengkap dengan Elevasi mdpl!) */}
-                {routeViewMode === 'list' && (
                 <div className="mt-4 space-y-2.5">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-white/70 px-1">
-                    Titik Jalur ({rows.length} Interval · Klik titik untuk melihat cuacanya)
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-white/70 px-1 flex items-center justify-between">
+                    <span>Titik Jalur ({rows.length} Interval)</span>
+                    <span className="text-[10px] text-cyan-300 font-extrabold bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full">🇮🇩🇮🇩 BMKG Data</span>
                   </div>
                   {rows.map((w, i) => {
                     const k = w.wx ? kind(w.wx.c) : 'sun';
                     const isSel = selectedWp === i;
                     const tempVal = w.wx ? Math.round(w.wx.t) : (liveTemp || 28);
-                    const condText = w.wx ? LBL[k] : 'Cerah';
+                    const condText = w.wx?.desc || (w.wx ? LBL[k] : 'Cerah');
                     return (
                       <div
                         key={i}
@@ -2217,7 +2080,6 @@ function App() {
                     );
                   })}
                 </div>
-                )}
               </div>
             )}
           </div>
